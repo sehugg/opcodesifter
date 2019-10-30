@@ -283,10 +283,13 @@ export class TestRunner6502 {
           var canon = this.canonicalizeSequence(insns);
           if (canon) {
             var results = this.vecs.map((vec) => this.runOne(insns, vec));
-            var prints = getFingerprints(results);
-            for (var sym in prints) {
-              debug('+', prints[sym], sym, i, seqlen, binpath);
-              if (this.addFingerprint) this.addFingerprint(prints[sym], insns, sym, i, seqlen, binpath);
+            if (results.length) {
+              if (this.addFragment) this.addFragment(insns, i);
+              var prints = getFingerprints(results);
+              for (var sym in prints) {
+                debug('+', prints[sym], sym, i, seqlen, binpath);
+                if (this.addFingerprint) this.addFingerprint(prints[sym], sym);
+              }
             }
             maxlen = canon.offsets.pop();
           } else {
@@ -296,7 +299,8 @@ export class TestRunner6502 {
       }
     }
     
-    addFingerprint : (print:string, insns:Uint8Array, sym:string, offset:number, seqlen:number, binpath:string) => void;
+    addFragment : (insns:Uint8Array, offset:number) => void;
+    addFingerprint : (print:string, sym:string) => void;
 
 }
 
@@ -343,22 +347,34 @@ function getTestVectors() {
 
 function run(db) {
   console.log('#', db);
+  db.pragma('journal_mode = MEMORY'); // TODO?
   var runner = new TestRunner6502();
   runner.cpu = new MOS6502();
   runner.vecs = getTestVectors();
+  var fragid = 0;
   if (db) {
-    const insert = db.prepare("INSERT OR IGNORE INTO prints (vec,insns,sym,filename,offset,length) VALUES (?,?,?,?,?,?)");
-    runner.addFingerprint = (print:string, insns:Uint8Array, sym:string, offset:number, seqlen:number, binpath:string) => {
-      insert.run(print, insns, sym, offset, seqlen, binpath);
+    var insertSource = db.prepare("INSERT OR IGNORE INTO sources (fragid, filename, offset) VALUES (?,?,?)");
+    var insertFragment = db.prepare("INSERT OR IGNORE INTO fragments (insns) VALUES (?)");
+    var insert = db.prepare("INSERT OR IGNORE INTO prints (vec,fragid,sym) VALUES (?,?,?)");
+    runner.addFingerprint = (print:string, sym:string) => {
+      insert.run(print, fragid, sym);
     }
   }
   var paths = process.argv.slice(2);
   var nextfile = () => {
     var binpath = paths.shift();
     if (binpath) {
+      var binfilename = binpath.split('/').slice(-1)[0];
+      runner.addFragment = (insns:Uint8Array, offset:number) => {
+        var info = insertFragment.run(insns);
+        fragid = info.lastInsertRowid;
+        insertSource.run(fragid, binfilename, offset);
+      }
       console.log("#file", binpath);
       var bindata = fs.readFileSync(binpath, null);
-      runner.process(bindata, binpath.split('/').slice(-1)[0]);
+      runner.process(bindata, binfilename);
+    } else {
+      process.exit(0);
     }
     setImmediate(nextfile);
   };
