@@ -288,7 +288,7 @@ export class TestRunner6502 {
               var prints = getFingerprints(results);
               for (var sym in prints) {
                 debug('+', prints[sym], sym, i, seqlen, binpath);
-                if (this.addFingerprint) this.addFingerprint(prints[sym], sym);
+                if (this.addFingerprint) this.addFingerprint(insns, prints[sym], sym);
               }
             }
             maxlen = canon.offsets.pop();
@@ -300,7 +300,7 @@ export class TestRunner6502 {
     }
     
     addFragment : (insns:Uint8Array, offset:number) => void;
-    addFingerprint : (print:string, sym:string) => void;
+    addFingerprint : (insns:Uint8Array, print:string, sym:string) => void;
 
 }
 
@@ -356,7 +356,7 @@ function run(db) {
     var insertSource = db.prepare("INSERT OR IGNORE INTO sources (fragid, filename, offset) VALUES (?,?,?)");
     var insertFragment = db.prepare("INSERT OR IGNORE INTO fragments (insns) VALUES (?)");
     var insert = db.prepare("INSERT OR IGNORE INTO prints (vec,fragid,sym) VALUES (?,?,?)");
-    runner.addFingerprint = (print:string, sym:string) => {
+    runner.addFingerprint = (insns:Uint8Array, print:string, sym:string) => {
       insert.run(print, fragid, sym);
     }
   }

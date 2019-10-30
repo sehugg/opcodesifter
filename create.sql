@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS sources(
 
 CREATE TABLE IF NOT EXISTS prints(
   vec BLOB,
-  fragid ROWID,
   sym TEXT,
-  PRIMARY KEY (vec, fragid, sym)
+  fragid ROWID,
+  PRIMARY KEY (vec, sym, fragid)
 ) WITHOUT ROWID;
