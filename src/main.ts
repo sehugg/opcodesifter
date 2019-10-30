@@ -3,6 +3,12 @@ import { MOS6502 } from "./cpu/MOS6502";
 import { CPU, Bus, ClockBased, SavesState, Interruptable } from "./devices";
 import { disassemble6502, OPS_6502 } from "./cpu/disasm6502";
 
+var verbose = 0;
+
+function debug(...args) {
+  if (verbose) process.stdout.write(util.format.apply(this, arguments) + '\n');
+}
+
 class StackMachine {
     bus : Bus;
     stack = [];
@@ -125,7 +131,7 @@ class RunState implements Bus {
             }
         } else {
             var sym = this.getSymbol(address, false);
-            //console.log('read',address,sym);
+            //debug('read',address,sym);
             return this.base.mem[address] & 0xff;
         }
     }
@@ -134,7 +140,7 @@ class RunState implements Bus {
         address &= 0xffff;
         value &= 0xff;
         var sym = this.getSymbol(address, true);
-        //console.log('write',address,value,sym);
+        //debug('write',address,value,sym);
         if (sym.indexed)
             this.outputs[sym.sym] = value + (address<<8);
         else
@@ -197,7 +203,7 @@ export class TestRunner6502 {
                 var bofs = i+2+rel;
                 branches.add(bofs);
             }
-            //console.log(i.toString(16), disassemble6502(i, insns[i], insns[i+1], insns[i+2]));
+            //debug(i.toString(16), disassemble6502(i, insns[i], insns[i+1], insns[i+2]));
             i += ilen;
         } while (i < insns.length && i < start+maxlen);
         branches.delete(start+maxlen);
@@ -260,7 +266,7 @@ export class TestRunner6502 {
                 result.constants.push(i+1);
                 break;
             }
-            console.log(i.toString(16), '\t', disassemble6502(i, insns[i], insns[i+1], insns[i+2]).line);
+            debug(i.toString(16), '\t', disassemble6502(i, insns[i], insns[i+1], insns[i+2]).line);
             i += opc.nb;
         } while (i < insns.length);
         return result;
@@ -279,7 +285,8 @@ export class TestRunner6502 {
             var results = this.vecs.map((vec) => this.runOne(insns, vec));
             var prints = getFingerprints(results);
             for (var sym in prints) {
-              console.log('+', prints[sym], sym, i, seqlen, binpath)
+              debug('+', prints[sym], sym, i, seqlen, binpath);
+              if (this.addFingerprint) this.addFingerprint(prints[sym], insns, sym, i, seqlen, binpath);
             }
             maxlen = canon.offsets.pop();
           } else {
@@ -288,6 +295,8 @@ export class TestRunner6502 {
         }
       }
     }
+    
+    addFingerprint : (print:string, insns:Uint8Array, sym:string, offset:number, seqlen:number, binpath:string) => void;
 
 }
 
@@ -301,9 +310,6 @@ if (args.length < 3) {
     process.exit(1);
 }
 
-//console.log = function() {
-//  process.stdout.write(util.format.apply(this, arguments) + '\n');
-//};
 
 var minseqlen = 2;
 var maxseqlen = 32;
@@ -335,10 +341,17 @@ function getTestVectors() {
   return vecs;
 }
 
-function run() {
+function run(db) {
+  console.log('#', db);
   var runner = new TestRunner6502();
   runner.cpu = new MOS6502();
   runner.vecs = getTestVectors();
+  if (db) {
+    const insert = db.prepare("INSERT OR IGNORE INTO prints (vec,insns,sym,filename,offset,length) VALUES (?,?,?,?,?,?)");
+    runner.addFingerprint = (print:string, insns:Uint8Array, sym:string, offset:number, seqlen:number, binpath:string) => {
+      insert.run(print, insns, sym, offset, seqlen, binpath);
+    }
+  }
   var paths = process.argv.slice(2);
   var nextfile = () => {
     var binpath = paths.shift();
@@ -352,4 +365,6 @@ function run() {
   nextfile();
 }
 
-run();
+var sqlite3 = require('better-sqlite3');
+var db = new sqlite3('./6502.db'); //, { verbose: console.log });
+run(db);
