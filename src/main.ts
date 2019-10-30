@@ -101,7 +101,6 @@ class RunState implements Bus {
     insns: Uint8Array;
     base : TestVector;
     syms = {};
-    inputs = {};
     outputs = {};
     endstate;
 
@@ -126,14 +125,13 @@ class RunState implements Bus {
                     case 0xfffd: return 0xff;
                     default: return 0x00;
                 }
-            } else {
+            } else if ((address & 0xff) <= this.insns.length) {
                 return this.insns[address & 0xff] & 0xff;
             }
-        } else {
-            var sym = this.getSymbol(address, false);
-            //debug('read',address,sym);
-            return this.base.mem[address] & 0xff;
         }
+        var sym = this.getSymbol(address, false);
+        //debug('read',address,sym);
+        return this.base.mem[address] & 0xff;
     }
     
     write(address: number, value: number) : void {
@@ -145,6 +143,10 @@ class RunState implements Bus {
             this.outputs[sym.sym] = value + (address<<8);
         else
             this.outputs[sym.sym] = value;
+    }
+    
+    set(register: string, value: number) : void {
+        this.outputs[register] = value & 0xff;
     }
 }
 
@@ -306,11 +308,28 @@ export class TestRunner6502 {
 
 ///
 
-var fs = require('fs');
-var util = require('util');
-var args = process.argv;
-if (args.length < 3) {
-    console.log("Usage: program [files]");
+const fs = require('fs');
+const util = require('util');
+const sqlite3 = require('better-sqlite3');
+const getopts = require("getopts")
+
+const options = getopts(process.argv.slice(2), {
+    alias: {
+        help: "h",
+        scan: "s",
+        db: "d",
+        verbose: "v",
+    },
+    default: {
+        db: null,
+        query: null,
+        scan: false,
+        verbose: false,
+    },
+    boolean: ["scan","verbose"],
+});
+if (options.help) {
+    console.log("Usage: program --db [.db] --scan [files] | --query query");
     process.exit(1);
 }
 
@@ -345,14 +364,14 @@ function getTestVectors() {
   return vecs;
 }
 
-function run(db) {
-  console.log('#', db);
-  db.pragma('journal_mode = MEMORY'); // TODO?
+function scanFiles(db) {
   var runner = new TestRunner6502();
   runner.cpu = new MOS6502();
   runner.vecs = getTestVectors();
   var fragid = 0;
   if (db) {
+    console.log('#', db);
+    db.pragma('journal_mode = MEMORY'); // TODO?
     var insertSource = db.prepare("INSERT OR IGNORE INTO sources (fragid, filename, offset) VALUES (?,?,?)");
     var insertFragment = db.prepare("INSERT OR IGNORE INTO fragments (insns) VALUES (?)");
     var insert = db.prepare("INSERT OR IGNORE INTO prints (vec,fragid,sym) VALUES (?,?,?)");
@@ -360,15 +379,17 @@ function run(db) {
       insert.run(print, fragid, sym);
     }
   }
-  var paths = process.argv.slice(2);
+  var paths = options._;
   var nextfile = () => {
     var binpath = paths.shift();
     if (binpath) {
       var binfilename = binpath.split('/').slice(-1)[0];
-      runner.addFragment = (insns:Uint8Array, offset:number) => {
-        var info = insertFragment.run(insns);
-        fragid = info.lastInsertRowid;
-        insertSource.run(fragid, binfilename, offset);
+      if (db) {
+        runner.addFragment = (insns:Uint8Array, offset:number) => {
+          var info = insertFragment.run(insns);
+          fragid = info.lastInsertRowid;
+          insertSource.run(fragid, binfilename, offset);
+        }
       }
       console.log("#file", binpath);
       var bindata = fs.readFileSync(binpath, null);
@@ -381,6 +402,42 @@ function run(db) {
   nextfile();
 }
 
-var sqlite3 = require('better-sqlite3');
-var db = new sqlite3('./6502.db'); //, { verbose: console.log });
-run(db);
+function runQuery(vec, func) {
+    var rs = new RunState();
+    rs.base = vec;
+    var rtn = func.call(rs, rs);
+    return rs.outputs;
+}
+
+function doQuery(db, funcbody:string) {
+    var vecs = getTestVectors();
+    var func = new Function('$', '"use strict";' + funcbody);
+    var results = vecs.map((vec) => runQuery(vec, func));
+    //console.log(results);
+    var prints = getFingerprints(results);
+    console.log(prints);
+    if (db) {
+        var qp = db.prepare("SELECT fragid FROM prints WHERE vec=? AND sym=?");
+        var qf = db.prepare("SELECT * FROM fragments f INNER JOIN sources s WHERE s.fragid=f.rowid AND s.fragid=?");
+        for (var sym in prints) {
+            var res = qp.all(prints[sym], sym);
+            for (var row of res) {
+                var frag = qf.get(row.fragid);
+                console.log(row.fragid,frag);
+            }
+        }
+    }
+}
+
+verbose = options.verbose;
+if (verbose) console.log(options)
+var db;
+if (options.db) {
+  db = new sqlite3(options.db); //, { verbose: console.log });
+}
+if (options.scan) {
+    scanFiles(db);
+}
+if (options.query) {
+    doQuery(db, options.query);
+}
