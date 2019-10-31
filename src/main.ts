@@ -384,6 +384,7 @@ function scanFiles(db) {
   if (db) {
     console.log('#', db);
     db.pragma('journal_mode = MEMORY'); // TODO?
+    db.pragma('synchronous = OFF'); // TODO?
     var insertSource = db.prepare("INSERT OR IGNORE INTO sources (fragid, filename, offset) VALUES (?,?,?)");
     var insertFragment = db.prepare("INSERT OR IGNORE INTO fragments (insns) VALUES (?)");
     var insert = db.prepare("INSERT OR IGNORE INTO prints (vec,fragid,sym) VALUES (?,?,?)");
@@ -396,6 +397,8 @@ function scanFiles(db) {
     var binpath = paths.shift();
     if (binpath) {
       var binfilename = binpath.split('/').slice(-1)[0];
+      console.log("#file", binpath);
+      var bindata = fs.readFileSync(binpath, null);
       if (db) {
         runner.addFragment = (insns:Uint8Array, offset:number) => {
           var info = insertFragment.run(insns);
@@ -403,8 +406,6 @@ function scanFiles(db) {
           insertSource.run(fragid, binfilename, offset);
         }
       }
-      console.log("#file", binpath);
-      var bindata = fs.readFileSync(binpath, null);
       runner.process(bindata, binfilename);
     } else {
       process.exit(0);
