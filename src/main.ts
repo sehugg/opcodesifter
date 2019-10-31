@@ -186,17 +186,29 @@ export class TestRunner6502 {
         this.cpu.loadState(s0);
         var start = 0xff00;
         var end = start + insns.length - 1;
+        var count = 0;
         do {
             this.cpu.advanceInsn();
             var pc = this.cpu.getPC();
+            if (count++ > 10000) {
+                console.log("exceeded insn limit", start, pc, end);
+                return {};
+            }
         } while (pc >= start && pc <= end);
         var s1 = this.cpu.saveState();
-        if (s1.SP != s0.SP) return {}; //"stack mismatch";
-        if (s1.D) return {}; //"decimal mode set"
+        if (s1.SP != s0.SP) {
+            debug("stack mismatch");
+            return {};
+        }
+        if (s1.D) {
+            debug("decimal mode");
+            return {};
+        }
         // TODO: check D flag, SP = SP'
         var r = this.rs.outputs;
-        for (var reg of ['A','X','Y','N','V','C','Z'])
+        for (var reg of ['A','X','Y','N','V','C','Z']) {
             r[reg] = s1[reg];
+        }
         //var endregs = [s1.A, s1.X, s1.Y, s1.N, s1.V, s1.C, s1.Z];
         return r; //endregs.concat(this.rs.outputs);
     }
@@ -220,8 +232,12 @@ export class TestRunner6502 {
             //debug(i.toString(16), disassemble6502(i, insns[i], insns[i+1], insns[i+2]));
             i += ilen;
         } while (i < insns.length && i < start+maxlen);
-        branches.delete(start+maxlen);
-        if (branches.size) return 0;
+        branches.delete(i);
+        if (branches.size > 0) {
+            debug("unmet branches", start, i-start, maxlen, branches);
+            return 0;
+        }
+        //debug(i-start, maxlen, branches);
         return i - start;
     }
 
@@ -385,9 +401,10 @@ function scanFiles(db) {
     console.log('#', db);
     db.pragma('journal_mode = MEMORY'); // TODO?
     db.pragma('synchronous = OFF'); // TODO?
+    var selectFragment = db.prepare("SELECT id FROM fragments WHERE insns = ?");
+    var insertFragment = db.prepare("INSERT INTO fragments (insns) VALUES (?)");
     var insertSource = db.prepare("INSERT OR IGNORE INTO sources (fragid, filename, offset) VALUES (?,?,?)");
-    var insertFragment = db.prepare("INSERT OR IGNORE INTO fragments (insns) VALUES (?)");
-    var insert = db.prepare("INSERT OR IGNORE INTO prints (vec,fragid,sym) VALUES (?,?,?)");
+    var insert = db.prepare("INSERT OR IGNORE INTO prints (vec, fragid, sym) VALUES (?,?,?)");
     runner.addFingerprint = (insns:Uint8Array, print:string, sym:string) => {
       insert.run(print, fragid, sym);
     }
@@ -401,8 +418,14 @@ function scanFiles(db) {
       var bindata = fs.readFileSync(binpath, null);
       if (db) {
         runner.addFragment = (insns:Uint8Array, offset:number) => {
-          var info = insertFragment.run(insns);
-          fragid = info.lastInsertRowid;
+          var info = selectFragment.get(insns);
+          if (info == null) {
+            info = insertFragment.run(insns);
+            fragid = info.lastInsertRowid;
+          } else {
+            fragid = info.id;
+          }
+          if (!fragid) console.log("zero row id",offset);
           insertSource.run(fragid, binfilename, offset);
         }
       }
