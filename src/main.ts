@@ -229,7 +229,7 @@ export class TestRunner6502 {
                 var bofs = i+2+rel;
                 branches.add(bofs);
             }
-            //debug(i.toString(16), disassemble6502(i, insns[i], insns[i+1], insns[i+2]));
+            if (verbose) debug(i.toString(16), disassemble6502(i, insns[i], insns[i+1], insns[i+2]));
             i += ilen;
         } while (i < insns.length && i < start+maxlen);
         branches.delete(i);
@@ -296,7 +296,7 @@ export class TestRunner6502 {
                 result.constants.push(i+1);
                 break;
             }
-            debug(i.toString(16), '\t', disassemble6502(i, insns[i], insns[i+1], insns[i+2]).line);
+            if (verbose) debug(i.toString(16), '\t', disassemble6502(i, insns[i], insns[i+1], insns[i+2]).line);
             i += opc.nb;
         } while (i < insns.length);
         return result;
@@ -312,7 +312,7 @@ export class TestRunner6502 {
           var insns = bindata.slice(i, i+seqlen);
           var canon = this.canonicalizeSequence(insns);
           if (canon) {
-            let exists = true;
+            let exists = false;
             if (this.addFragment) {
               exists = this.addFragment(insns, i);
             }
