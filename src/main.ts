@@ -148,6 +148,18 @@ class RunState implements Bus {
     set(register: string, value: number) : void {
         this.outputs[register] = value & 0xff;
     }
+    
+    read16(address: number) : number {
+        var lo = this.read(address);
+        var hi = this.read(address+1);
+        return lo + (hi<<8);
+    }
+    s8(x: number) : number {
+        return (x & 0x80) ? x-256 : x;
+    }
+    s16(x: number) : number {
+        return (x & 0x8000) ? x-65536 : x;
+    }
 }
 
 export class TestRunner6502 {
