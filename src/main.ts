@@ -312,9 +312,12 @@ export class TestRunner6502 {
           var insns = bindata.slice(i, i+seqlen);
           var canon = this.canonicalizeSequence(insns);
           if (canon) {
-            var results = this.vecs.map((vec) => this.runOne(insns, vec));
-            if (results.length) {
-              if (this.addFragment) this.addFragment(insns, i);
+            let exists = true;
+            if (this.addFragment) {
+              exists = this.addFragment(insns, i);
+            }
+            if (!exists) {
+              var results = this.vecs.map((vec) => this.runOne(insns, vec));
               var prints = getFingerprints(results);
               for (var sym in prints) {
                 debug('+', prints[sym], sym, i, seqlen, binpath);
@@ -329,7 +332,7 @@ export class TestRunner6502 {
       }
     }
     
-    addFragment : (insns:Uint8Array, offset:number) => void;
+    addFragment : (insns:Uint8Array, offset:number) => boolean;
     addFingerprint : (insns:Uint8Array, print:string, sym:string) => void;
 
 }
@@ -418,15 +421,18 @@ function scanFiles(db) {
       var bindata = fs.readFileSync(binpath, null);
       if (db) {
         runner.addFragment = (insns:Uint8Array, offset:number) => {
+          var exists = false;
           var info = selectFragment.get(insns);
           if (info == null) {
             info = insertFragment.run(insns);
             fragid = info.lastInsertRowid;
           } else {
             fragid = info.id;
+            exists = true;
           }
           if (!fragid) console.log("zero row id",offset);
           insertSource.run(fragid, binfilename, offset);
+          return exists;
         }
       }
       runner.process(bindata, binfilename);
