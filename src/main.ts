@@ -64,10 +64,28 @@ class TestVector {
         SP: this.mem[0xff04],
       }
     };
+    
+    getDefaultValueForSymbol(sym: string) {
+        var regs = this.getRegisters6502();
+        if (regs[sym] != null)
+          return regs[sym];
+        else if (sym.length > 1)
+          return this.mem[parseInt(sym.substring(1), 16)];
+        else
+          return null;
+    }
+
+    ensureSymbol(outputs:{}, sym: string) {
+        if (outputs[sym] == null) {
+            outputs[sym] = this.getDefaultValueForSymbol(sym);
+        }
+    }
+
 }
 
 const ZPSTART = 0x20;
 const ABSPG = 0x02;
+const INDPG = 0x03;
 const ENDPG = 0x08;
 
 class RunState implements Bus {
@@ -80,15 +98,16 @@ class RunState implements Bus {
     getSymbol(address: number, iswrite: boolean) {
         var sym = this.syms[address];
         var name;
-        if (address < 0x100) name = 'z'+address.toString(16);
-        else if (address < ENDPG*256) name = 'a'+address.toString(16);
-        else name = 'i';
-        if (!sym) sym = this.syms[address] = { sym: name, input: false, output: false, indexed: name=='I' };
+        if (address < 0x100) name = 'z'+address.toString(16); // zeropage
+        else if (address < INDPG*256) name = 'a'+address.toString(16); // absolute
+        else if (address < ENDPG*256) name = 'n'+address.toString(16); // iNdexed
+        else name = 'i'+address.toString(16); // Indirect
+        if (!sym) sym = this.syms[address] = { sym: name, input: false, output: false, indexed: name=='$' };
         if (iswrite) sym.output = true;
         else sym.input = true;
         return sym;
     }
-
+    
     read(address: number) : number {
         address &= 0xffff;
         if (address >= 0xff00) {
@@ -98,7 +117,7 @@ class RunState implements Bus {
                     case 0xfffd: return 0xff;
                     default: return 0x00;
                 }
-            } else if ((address & 0xff) <= this.insns.length) {
+            } else if (this.insns && (address & 0xff) <= this.insns.length) {
                 return this.insns[address & 0xff] & 0xff;
             }
         }
@@ -263,6 +282,7 @@ export class TestRunner6502 {
         var i = 0;
         var _zp = ZPSTART;
         var _abs = ABSPG << 8;
+        var _ind = INDPG << 8;
         var map = {};
         var result = { constants: [], offsets: [], map: map };
         do {
@@ -280,24 +300,35 @@ export class TestRunner6502 {
                     a = map[op1];
                 } else {
                     a = map[op1] = _zp;
+                   _zp += 1;
+                   if (opc.am == "(aa),y") _zp += 1;
                 }
                 insns[i+1] = a;
-                _zp += 1;
-                if (opc.am == "(aa),y") _zp += 1;
                 break;
               case "AAAA":
-              case "AAAA,x":
-              case "AAAA,y":
-                if (_abs >= ENDPG*256) return false;
+                if (_abs >= ABSPG*256+256) return false;
                 a = op1 + op2*256;
                 if (map[a] >= 0) {
                     a = map[a];
                 } else {
                     a = map[a] = _abs;
+                    _abs += 1;
                 }
                 insns[i+1] = a & 0xff;
                 insns[i+2] = a >> 8;
-                _abs += (opc.am == "AAAA") ? 1 : 256;
+                break;
+              case "AAAA,x":
+              case "AAAA,y":
+                if (_ind >= ENDPG*256) return false;
+                a = op1 + op2*256;
+                if (map[a] >= 0) {
+                    a = map[a];
+                } else {
+                    a = map[a] = _ind;
+                    _ind += 256;
+                }
+                insns[i+1] = a & 0xff;
+                insns[i+2] = a >> 8;
                 break;
               case "aa,x":
               case "(aa,x)":
@@ -336,7 +367,7 @@ export class TestRunner6502 {
             }
             if (!exists) {
               var results = this.vecs.map((vec) => this.runOne(insns, vec));
-              var prints = getFingerprints(results);
+              var prints = getFingerprints(this.vecs, results);
               for (var sym in prints) {
                 debug('+', prints[sym], sym, i, seqlen, binpath);
                 if (this.addFingerprint) this.addFingerprint(insns, prints[sym], sym);
@@ -392,21 +423,33 @@ function allSameValues(arr) : boolean {
     return arr.every((x) => x === arr[0]);
 }
 
-function getFingerprints(results) {
+var symsum = 0;
+var symcnt = 0;
+
+function getFingerprints(vecs:TestVector[], results:{}[]) : {} {
   var symbols = new Set<string>();
-  results.forEach((vec) => { for (var k of Object.keys(vec)) symbols.add(k) });
+  results.forEach((vec) => {
+      for (var k of Object.keys(vec)) symbols.add(k)
+  });
+  symsum += symbols.size;
+  symcnt += 1;
+  for (var i=0; i<vecs.length; i++) {
+      var vec = vecs[i];
+      var res = results[i];
+      symbols.forEach((k) => vec.ensureSymbol(res, k));
+  }
   var prints = {};
   for (var sym of Array.from(symbols)) {
       var testv = results.map((vec) => vec[sym]);
       if (true) { // || !allSameValues(testv)) { // skip constant results?
-        testv = testv.map((v) => (v>=0) ? v.toString(16).padStart(2,'0') : 'x');
+        testv = testv.map((v) => v == null ? 'x' : v.toString(16).padStart(2,'0'));
         prints[sym] = testv.join('');
       }
   }
   return prints;
 }
 
-function getTestVectors() {
+function getTestVectors() : TestVector[] {
   var vecs = [];
   vecs.push(new TestVector(0x00, false));
   vecs.push(new TestVector(0x01, false));
@@ -441,7 +484,7 @@ function scanFiles(db) {
     var binpath = paths.shift();
     if (binpath) {
       var binfilename = binpath.split('/').slice(-1)[0];
-      console.log("#file", binpath);
+      console.log("#file", binpath, symsum/symcnt);
       var bindata = fs.readFileSync(binpath, null);
       if (db) {
         runner.addFragment = (insns:Uint8Array, offset:number) => {
@@ -479,7 +522,7 @@ function doQuery(db, funcbody:string) {
     var vecs = getTestVectors();
     var func = new Function('i', 'o', '"use strict";\n' + funcbody);
     var results = vecs.map((vec) => runQuery(vec, func));
-    var prints = getFingerprints(results);
+    var prints = getFingerprints(vecs, results);
     console.log(prints);
     if (db) {
         var args = [];
