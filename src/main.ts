@@ -485,7 +485,7 @@ function doQuery(db, funcbody:string) {
         var args = [];
         var sql = "SELECT DISTINCT insns,filename FROM fragments f INNER JOIN sources s WHERE s.fragid=f.rowid ";
         for (var sym in prints) {
-            sql += " AND EXISTS (SELECT * FROM prints WHERE fragid=f.id AND sym=? AND vec=?)";
+            sql += " AND f.id IN (SELECT fragid FROM prints WHERE sym=? AND vec=?)";
             args.push(sym);
             args.push(prints[sym]);
         }
