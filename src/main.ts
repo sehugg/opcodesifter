@@ -3,7 +3,9 @@ import { MOS6502 } from "./cpu/MOS6502";
 import { CPU, Bus, ClockBased, SavesState, Interruptable } from "./devices";
 import { disassemble6502, OPS_6502 } from "./cpu/disasm6502";
 
-var verbose = 0;
+const util = require('util');
+
+export var verbose = 0;
 
 function debug(...args) {
   if (verbose) process.stdout.write(util.format.apply(this, arguments) + '\n');
@@ -122,8 +124,12 @@ class RunState implements Bus {
             }
         }
         var sym = this.getSymbol(address, false);
-        //debug('read',address,sym);
-        return this.base.mem[address] & 0xff;
+        var val = this.outputs[sym.sym];
+        if (val != null) debug('read',address,sym,val);
+        if (val != null)
+          return val & 0xff;
+        else
+          return this.base.mem[address] & 0xff;
     }
     
     write(address: number, value: number) : void {
@@ -211,6 +217,11 @@ export class TestRunner6502 {
     vecs : TestVector[];
     cpu: MOS6502;
     rs: RunState;
+    
+    constructor(vecs) {
+      this.cpu = new MOS6502();
+      this.vecs = vecs;
+    }
     
     runOne(insns: Uint8Array, vec: TestVector) {
         this.rs = new RunState();
@@ -388,31 +399,6 @@ export class TestRunner6502 {
 
 ///
 
-const fs = require('fs');
-const util = require('util');
-const sqlite3 = require('better-sqlite3');
-const getopts = require("getopts")
-
-const options = getopts(process.argv.slice(2), {
-    alias: {
-        help: "h",
-        scan: "s",
-        db: "d",
-        verbose: "v",
-    },
-    default: {
-        db: null,
-        query: null,
-        scan: false,
-        verbose: false,
-    },
-    boolean: ["scan","verbose"],
-});
-if (options.help) {
-    console.log("Usage: program --db [.db] --scan [files] | --query query");
-    process.exit(1);
-}
-
 
 var minseqlen = 2;
 var maxseqlen = 32;
@@ -449,7 +435,7 @@ function getFingerprints(vecs:TestVector[], results:{}[]) : {} {
   return prints;
 }
 
-function getTestVectors() : TestVector[] {
+export function getTestVectors() : TestVector[] {
   var vecs = [];
   vecs.push(new TestVector(0x00, false));
   vecs.push(new TestVector(0x01, false));
@@ -462,10 +448,9 @@ function getTestVectors() : TestVector[] {
   return vecs;
 }
 
-function scanFiles(db) {
-  var runner = new TestRunner6502();
-  runner.cpu = new MOS6502();
-  runner.vecs = getTestVectors();
+function scanFiles(db, paths) {
+  const fs = require('fs');
+  var runner = new TestRunner6502(getTestVectors());
   var fragid = 0;
   if (db) {
     console.log('#', db);
@@ -479,7 +464,6 @@ function scanFiles(db) {
       insert.run(print, fragid, sym);
     }
   }
-  var paths = options._;
   var nextfile = () => {
     var binpath = paths.shift();
     if (binpath) {
@@ -543,6 +527,33 @@ function doQuery(db, funcbody:string) {
     }
 }
 
+//
+
+if (require.main === module) {
+
+const sqlite3 = require('better-sqlite3');
+const getopts = require("getopts")
+
+const options = getopts(process.argv.slice(2), {
+    alias: {
+        help: "h",
+        scan: "s",
+        db: "d",
+        verbose: "v",
+    },
+    default: {
+        db: null,
+        query: null,
+        scan: false,
+        verbose: false,
+    },
+    boolean: ["scan","verbose"],
+});
+if (options.help) {
+    console.log("Usage: program --db [.db] --scan [files] | --query query");
+    process.exit(1);
+}
+
 verbose = options.verbose;
 debug(options);
 var db;
@@ -550,8 +561,10 @@ if (options.db) {
   db = new sqlite3(options.db); //, { verbose: console.log });
 }
 if (options.scan) {
-    scanFiles(db);
+    scanFiles(db, options._);
 }
 if (options.query) {
     doQuery(db, options.query);
 }
+
+} // end main
