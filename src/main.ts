@@ -5,7 +5,8 @@ import { disassemble6502, OPS_6502 } from "./cpu/disasm6502";
 
 const util = require('util');
 
-export var verbose = 0;
+var verbose : number = 0;
+export function setVerbosity(v : number) { verbose = v; }
 
 function debug(...args) {
   if (verbose) process.stdout.write(util.format.apply(this, arguments) + '\n');
@@ -412,7 +413,7 @@ function allSameValues(arr) : boolean {
 var symsum = 0;
 var symcnt = 0;
 
-function getFingerprints(vecs:TestVector[], results:{}[]) : {} {
+export function getFingerprints(vecs:TestVector[], results:{}[]) : {} {
   var symbols = new Set<string>();
   results.forEach((vec) => {
       for (var k of Object.keys(vec)) symbols.add(k)
