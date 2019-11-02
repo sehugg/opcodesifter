@@ -5,7 +5,8 @@
   "main": "main.js",
   "scripts": {
     "build": "tsc",
-    "test": "tsc && mocha"
+    "test": "tsc && mocha",
+    "main": "tsc && node ./src/main.js"
   },
   "author": "",
   "license": "ISC",
