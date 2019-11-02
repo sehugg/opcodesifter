@@ -240,6 +240,12 @@ export class TestRunner6502 {
         do {
             this.cpu.advanceInsn();
             var pc = this.cpu.getPC();
+            /*
+            var opc = this.rs.read(pc);
+            if (opc == 0x60) { // RTS
+              break;
+            }
+            */
             if (count++ > 10000) {
                 console.log("exceeded insn limit", start, pc, end);
                 return {};
@@ -524,7 +530,9 @@ function doQuery(db, funcbody:string) {
             var q = db.prepare(sql);
             var res = q.all(args);
             for (var r of res) console.log(r);
-            new TestRunner6502(vecs).canonicalizeSequence(r.insns);
+            if (r && r.insns) {
+              new TestRunner6502(vecs).canonicalizeSequence(r.insns);
+            }
         }
     }
 }
