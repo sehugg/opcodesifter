@@ -524,6 +524,7 @@ function doQuery(db, funcbody:string) {
             var q = db.prepare(sql);
             var res = q.all(args);
             for (var r of res) console.log(r);
+            new TestRunner6502(vecs).canonicalizeSequence(r.insns);
         }
     }
 }
