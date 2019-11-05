@@ -1,6 +1,6 @@
 
-import { MOS6502 } from "./cpu/MOS6502";
 import { CPU, Bus, ClockBased, SavesState, Interruptable } from "./devices";
+import { MOS6502 } from "./cpu/MOS6502";
 import { disassemble6502, OPS_6502 } from "./cpu/disasm6502";
 
 const util = require('util');
@@ -11,27 +11,6 @@ export function setVerbosity(v : number) { verbose = v; }
 function debug(...args) {
   if (verbose) process.stdout.write(util.format.apply(this, arguments) + '\n');
 }
-
-const validinsns_6502 = [
-  0, 2, 0, 0, 0, 2, 2, 0, 1, 2, 1, 0, 0, 3, 3, 0,
-  2, 2, 0, 0, 0, 2, 2, 0, 1, 3, 0, 0, 0, 3, 3, 0,
-  0, 2, 0, 0, 2, 2, 2, 0, 1, 2, 1, 0, 3, 3, 3, 0,
-  2, 2, 0, 0, 0, 2, 2, 0, 1, 3, 0, 0, 0, 3, 3, 0,
-  0, 2, 0, 0, 0, 2, 2, 0, 1, 2, 1, 0, 0, 3, 3, 0,
-  2, 2, 0, 0, 0, 2, 2, 0, 0, 3, 0, 0, 0, 3, 3, 0,
-  0, 2, 0, 0, 0, 2, 2, 0, 1, 2, 1, 0, 0, 3, 3, 0,
-  2, 2, 0, 0, 0, 2, 2, 0, 0, 3, 0, 0, 0, 3, 3, 0,
-  
-  0, 2, 0, 0, 2, 2, 2, 0, 1, 0, 1, 0, 3, 3, 3, 0,
-  2, 2, 0, 0, 2, 2, 2, 0, 1, 3, 1/*txs*/, 0, 0, 3, 0, 0,
-  2, 2, 2, 0, 2, 2, 2, 0, 1, 2, 1, 0, 3, 3, 3, 0,
-  2, 2, 0, 0, 2, 2, 2, 0, 1, 3, 1/*tsx*/, 0, 3, 3, 3, 0,
-  2, 2, 0, 0, 2, 2, 2, 0, 1, 2, 1, 0, 3, 3, 3, 0,
-  2, 2, 0, 0, 0, 2, 2, 0, 1, 3, 0, 0, 0, 3, 3, 0,
-  2, 2, 0, 0, 2, 2, 2, 0, 1, 2, 0/*nop*/, 0, 3, 3, 3, 0,
-  2, 2, 0, 0, 0, 2, 2, 0, 1, 3, 0, 0, 0, 3, 3, 0
-];
-
 
 var _random_state : number = 0;
 export function noise() {
@@ -96,7 +75,11 @@ class RunState implements Bus {
     base : TestVector;
     syms = {};
     outputs = {};
-    endstate;
+
+    constructor(insns: Uint8Array, vec: TestVector) {
+      this.base = vec;
+      this.insns = insns;
+    }
 
     getSymbol(address: number, iswrite: boolean) {
         var sym = this.syms[address];
@@ -214,20 +197,85 @@ class Outputs {
     }
 }
 
-export class TestRunner6502 {
-    vecs : TestVector[];
+export abstract class TestRunner {
+  vecs : TestVector[];
+  rs : RunState;
+
+  process(bindata: Uint8Array, binpath: string) {
+    for (var i=0; i<bindata.length; i++) {
+      var maxlen = maxseqlen;
+      while (maxlen >= minseqlen) {
+        var seqlen = this.validateSequence(bindata, i, maxlen);
+        if (seqlen < minseqlen)
+          break;
+        var insns = bindata.slice(i, i+seqlen);
+        var canon = this.canonicalizeSequence(insns);
+        if (canon) {
+          let exists = false;
+          if (this.addFragment) {
+            exists = this.addFragment(insns, i);
+          }
+          if (!exists) {
+            var results = this.vecs.map((vec) => this.runOne(insns, vec));
+            var prints = getFingerprints(this.vecs, results);
+            for (var sym in prints) {
+              debug('+', prints[sym], sym, i, seqlen, binpath);
+              if (this.addFingerprint) this.addFingerprint(insns, prints[sym], sym);
+            }
+          }
+          maxlen = canon.offsets.pop();
+        } else {
+          break; // TODO? maxlen--;
+        }
+      }
+    }
+  }
+
+  abstract runOne(insns: Uint8Array, vec: TestVector) : {};
+  abstract validateSequence(insns: Uint8Array, start: number, maxlen: number) : number;
+  abstract canonicalizeSequence(insns: Uint8Array) : false | CanonicalizeResult;
+
+  addFragment : (insns:Uint8Array, offset:number) => boolean;
+  addFingerprint : (insns:Uint8Array, print:string, sym:string) => void;
+}
+
+interface CanonicalizeResult {
+  constants : number[];
+  offsets : number[];
+  map : {};
+}
+
+const validinsns_6502 = [
+  0, 2, 0, 0, 0, 2, 2, 0, 1, 2, 1, 0, 0, 3, 3, 0,
+  2, 2, 0, 0, 0, 2, 2, 0, 1, 3, 0, 0, 0, 3, 3, 0,
+  0, 2, 0, 0, 2, 2, 2, 0, 1, 2, 1, 0, 3, 3, 3, 0,
+  2, 2, 0, 0, 0, 2, 2, 0, 1, 3, 0, 0, 0, 3, 3, 0,
+  0, 2, 0, 0, 0, 2, 2, 0, 1, 2, 1, 0, 0, 3, 3, 0,
+  2, 2, 0, 0, 0, 2, 2, 0, 0, 3, 0, 0, 0, 3, 3, 0,
+  0, 2, 0, 0, 0, 2, 2, 0, 1, 2, 1, 0, 0, 3, 3, 0,
+  2, 2, 0, 0, 0, 2, 2, 0, 0, 3, 0, 0, 0, 3, 3, 0,
+  
+  0, 2, 0, 0, 2, 2, 2, 0, 1, 0, 1, 0, 3, 3, 3, 0,
+  2, 2, 0, 0, 2, 2, 2, 0, 1, 3, 1/*txs*/, 0, 0, 3, 0, 0,
+  2, 2, 2, 0, 2, 2, 2, 0, 1, 2, 1, 0, 3, 3, 3, 0,
+  2, 2, 0, 0, 2, 2, 2, 0, 1, 3, 1/*tsx*/, 0, 3, 3, 3, 0,
+  2, 2, 0, 0, 2, 2, 2, 0, 1, 2, 1, 0, 3, 3, 3, 0,
+  2, 2, 0, 0, 0, 2, 2, 0, 1, 3, 0, 0, 0, 3, 3, 0,
+  2, 2, 0, 0, 2, 2, 2, 0, 1, 2, 0/*nop*/, 0, 3, 3, 3, 0,
+  2, 2, 0, 0, 0, 2, 2, 0, 1, 3, 0, 0, 0, 3, 3, 0
+];
+
+export class TestRunner6502 extends TestRunner {
     cpu: MOS6502;
-    rs: RunState;
     
     constructor(vecs) {
+      super();
       this.cpu = new MOS6502();
       this.vecs = vecs;
     }
     
     runOne(insns: Uint8Array, vec: TestVector) {
-        this.rs = new RunState();
-        this.rs.base = vec;
-        this.rs.insns = insns;
+        this.rs = new RunState(insns, vec);
         this.cpu.connectMemoryBus(this.rs);
         this.cpu.reset();
         var s0 = this.cpu.saveState();
@@ -296,7 +344,7 @@ export class TestRunner6502 {
         return i - start;
     }
 
-    canonicalizeSequence(insns: Uint8Array) {
+    canonicalizeSequence(insns: Uint8Array) : false | CanonicalizeResult {
         var i = 0;
         var _zp = ZPSTART;
         var _abs = ABSPG << 8;
@@ -368,39 +416,6 @@ export class TestRunner6502 {
         } while (i < insns.length);
         return result;
     }
-
-    process(bindata: Uint8Array, binpath: string) {
-      for (var i=0; i<bindata.length; i++) {
-        var maxlen = maxseqlen;
-        while (maxlen >= minseqlen) {
-          var seqlen = this.validateSequence(bindata, i, maxlen);
-          if (seqlen < minseqlen)
-            break;
-          var insns = bindata.slice(i, i+seqlen);
-          var canon = this.canonicalizeSequence(insns);
-          if (canon) {
-            let exists = false;
-            if (this.addFragment) {
-              exists = this.addFragment(insns, i);
-            }
-            if (!exists) {
-              var results = this.vecs.map((vec) => this.runOne(insns, vec));
-              var prints = getFingerprints(this.vecs, results);
-              for (var sym in prints) {
-                debug('+', prints[sym], sym, i, seqlen, binpath);
-                if (this.addFingerprint) this.addFingerprint(insns, prints[sym], sym);
-              }
-            }
-            maxlen = canon.offsets.pop();
-          } else {
-            break; // TODO? maxlen--;
-          }
-        }
-      }
-    }
-    
-    addFragment : (insns:Uint8Array, offset:number) => boolean;
-    addFingerprint : (insns:Uint8Array, print:string, sym:string) => void;
 
 }
 
@@ -503,8 +518,7 @@ function scanFiles(db, paths) {
 }
 
 function runQuery(vec, func) {
-    var rs = new RunState();
-    rs.base = vec;
+    var rs = new RunState(null, vec);
     var rtn = func.call(rs, new Inputs(rs), new Outputs(rs));
     return rs.outputs;
 }
