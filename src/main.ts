@@ -197,9 +197,13 @@ class Outputs {
     }
 }
 
+type RunResult = {};
+type Fingerprints = {};
+
 export abstract class TestRunner {
   vecs : TestVector[];
   rs : RunState;
+  nooprints : {};
 
   process(bindata: Uint8Array, binpath: string) {
     for (var i=0; i<bindata.length; i++) {
@@ -218,9 +222,13 @@ export abstract class TestRunner {
           if (!exists) {
             var results = this.vecs.map((vec) => this.runOne(insns, vec));
             var prints = getFingerprints(this.vecs, results);
-            for (var sym in prints) {
-              debug('+', prints[sym], sym, i, seqlen, binpath);
-              if (this.addFingerprint) this.addFingerprint(insns, prints[sym], sym);
+            if (this.isBoring(prints)) {
+              debug('BORING', prints);
+            } else {
+              for (var sym in prints) {
+                debug('+', prints[sym], sym, i, seqlen, binpath);
+                if (this.addFingerprint) this.addFingerprint(insns, prints[sym], sym);
+              }
             }
           }
           maxlen = canon.offsets.pop();
@@ -229,6 +237,14 @@ export abstract class TestRunner {
         }
       }
     }
+  }
+
+  isBoring(prints : Fingerprints) : boolean {
+    for (var k in prints) {
+      if (prints[k] != this.nooprints[k] && !/^(..)\1+$/.test(prints[k]) ) // ex: 0101010101
+        return false;
+    }
+    return true;
   }
 
   abstract runOne(insns: Uint8Array, vec: TestVector) : {};
@@ -272,9 +288,10 @@ export class TestRunner6502 extends TestRunner {
       super();
       this.cpu = new MOS6502();
       this.vecs = vecs;
+      this.nooprints = getFingerprints(vecs, vecs.map((vec) => this.runOne(new Uint8Array(0), vec)));
     }
     
-    runOne(insns: Uint8Array, vec: TestVector) {
+    runOne(insns: Uint8Array, vec: TestVector) : RunResult {
         this.rs = new RunState(insns, vec);
         this.cpu.connectMemoryBus(this.rs);
         this.cpu.reset();
@@ -434,7 +451,7 @@ function allSameValues(arr) : boolean {
 var symsum = 0;
 var symcnt = 0;
 
-export function getFingerprints(vecs:TestVector[], results:{}[]) : {} {
+export function getFingerprints(vecs:TestVector[], results:RunResult[]) : Fingerprints {
   var symbols = new Set<string>();
   results.forEach((vec) => {
       for (var k of Object.keys(vec)) symbols.add(k)

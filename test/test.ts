@@ -30,6 +30,7 @@ function getPrints(source) {
   var len = runner.validateSequence(insns, 0, 32);
   var results = vecs.map((vec) => runner.runOne(insns, vec));
   var prints = getFingerprints(vecs, results);
+  console.log('boring =', runner.isBoring(prints));
   return prints;
 }
 
@@ -110,7 +111,11 @@ describe('6502', function() {
     });
 */
     it('should be equiv', function() {
-    
+
+      testEquiv([0xea], [0xea, 0xea]);
+
+      testEquiv([0xea], [0xd0, 0x00]);
+
       testEquiv([0xc8], [0xc8]);
 
       testEquiv([0xe6, 0x20, 0xd0, 0x02, 0xe6, 0x21, 0xa5, 0x21, 0x18, 0xb8],
