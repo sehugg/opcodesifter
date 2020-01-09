@@ -5,6 +5,13 @@ import { disassemble6502, OPS_6502 } from "./cpu/disasm6502";
 
 const util = require('util');
 
+const MAX_CYCLES = 2000;
+const MAX_FINGERPRINTS = 100;
+
+class SimError extends Error {
+  isSimError = true;
+}
+
 var verbose : number = 0;
 export function setVerbosity(v : number) { verbose = v; }
 
@@ -220,15 +227,21 @@ export abstract class TestRunner {
             exists = this.addFragment(insns, i);
           }
           if (!exists) {
-            var results = this.vecs.map((vec) => this.runOne(insns, vec));
-            var prints = getFingerprints(this.vecs, results);
-            if (this.isBoring(prints)) {
-              debug('BORING', prints);
-            } else {
-              for (var sym in prints) {
-                debug('+', prints[sym], sym, i, seqlen, binpath);
-                if (this.addFingerprint) this.addFingerprint(insns, prints[sym], sym);
+            try {
+              var results = this.vecs.map((vec) => this.runOne(insns, vec));
+              var prints = getFingerprints(this.vecs, results);
+              if (this.isTooMuch(prints)) {
+                debug('TOOMUCH', prints);
+              } else if (this.isBoring(prints)) {
+                debug('BORING', prints);
+              } else {
+                for (var sym in prints) {
+                  debug('+', prints[sym], sym, i, seqlen, binpath);
+                  if (this.addFingerprint) this.addFingerprint(insns, prints[sym], sym);
+                }
               }
+            } catch (e) {
+              if (!e['isSimError']) throw e;
             }
           }
           maxlen = canon.offsets.pop();
@@ -245,6 +258,10 @@ export abstract class TestRunner {
         return false;
     }
     return true;
+  }
+
+  isTooMuch(prints : Fingerprints) : boolean {
+    return Object.keys(prints).length > MAX_FINGERPRINTS;
   }
 
   abstract runOne(insns: Uint8Array, vec: TestVector) : {};
@@ -300,31 +317,41 @@ export class TestRunner6502 extends TestRunner {
         s0.D = 0;
         this.cpu.loadState(s0);
         var start = 0xff00;
-        var end = start + insns.length - 1;
+        var end = start + insns.length;
         var count = 0;
         do {
-            this.cpu.advanceInsn();
-            var pc = this.cpu.getPC();
+            this.cpu.advanceClock();
+            count += 1;
             /*
             var opc = this.rs.read(pc);
             if (opc == 0x60) { // RTS
               break;
             }
             */
-            if (count++ > 10000) {
-                console.log("exceeded insn limit", start, pc, end);
-                return {};
+            if (count > MAX_CYCLES) {
+                debug("exceeded insn limit", start, pc, end);
+                throw new SimError();
             }
-        } while (pc >= start && pc <= end);
+            var pc = this.cpu.getPC();
+            if (pc < start) {
+              debug("ran before the start");
+              throw new SimError();
+            }
+            if (pc > end) {	
+              debug("ran after the end");
+              throw new SimError();
+            }
+        } while (pc != end);
         var s1 = this.cpu.saveState();
         if (s1.SP != s0.SP) {
             debug("stack mismatch");
-            return {};
+            throw new SimError();
         }
         if (s1.D) {
             debug("decimal mode");
-            return {};
+            throw new SimError();
         }
+        if (count > 100) debug("simulated", count, "cycles");
         // TODO: check D flag, SP = SP'
         var r = this.rs.outputs;
         for (var reg of ['A','X','Y','N','V','C','Z']) {
@@ -336,28 +363,20 @@ export class TestRunner6502 extends TestRunner {
     validateSequence(insns: Uint8Array, start: number, maxlen: number) : number {
         var i = start;
         var n = 0;
-        var branches = new Set();
         do {
             var op = insns[i];
             var ilen = validinsns_6502[op];
             if (!ilen) break;
-            branches.delete(i);
             // check branch target
             if ((op & 0x1f) == 0x10) {
                 var rel = insns[i+1];
-                if (rel >= 0x80) break; // don't allow backwards
-                var bofs = i+2+rel;
-                branches.add(bofs);
+                if (rel == 0) return 0;
+                var bofs = rel < 128 ? i+2+rel : i+2-(256-rel);
+                if (bofs < 0 || bofs > insns.length) return 0;
             }
             if (verbose) debug(i.toString(16), disassemble6502(i, insns[i], insns[i+1], insns[i+2]));
             i += ilen;
         } while (i < insns.length && i < start+maxlen);
-        branches.delete(i);
-        if (branches.size > 0) {
-            debug("unmet branches", start, i-start, maxlen, branches);
-            return 0;
-        }
-        //debug(i-start, maxlen, branches);
         return i - start;
     }
 

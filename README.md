@@ -42,7 +42,7 @@ So we'll look for it in $20/$21.
 After populating the database with a bunch of Apple II disk images, we run this command:
 
 ~~~
-npm run main -- --db 6502c.db --query "var A=i.get(['A']); o.write16(0x20, 0x2000 + (A&7)*0x400 + ((A>>3)&7)*0x80 + (A>>6)*0x28)" -v
+npm run main -- --db 6502.db --query "var A=i.get(['A']); o.write16(0x20, 0x2000 + (A&7)*0x400 + ((A>>3)&7)*0x80 + (A>>6)*0x28)" -v
 ~~~
 
 This finds the following routine:
