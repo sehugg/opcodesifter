@@ -100,7 +100,7 @@ npm run main -- --scan file.bin -v
 
 Populate a database:
 ~~~
-sqlite3 6502.db < create.sql
+npm run main -- --db 6502.db --create  
 npm run main -- --db 6502.db --scan *.bin
 ~~~
 

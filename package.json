@@ -1,6 +1,6 @@
 {
   "name": "opcodesifter",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "looks for interesting code fragments and fingerprints them",
   "main": "main.js",
   "scripts": {

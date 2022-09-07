@@ -600,17 +600,19 @@ const options = getopts(process.argv.slice(2), {
         scan: "s",
         db: "d",
         verbose: "v",
+        create: "C",
     },
     default: {
         db: null,
         query: null,
         scan: false,
         verbose: false,
+        create: false,
     },
-    boolean: ["scan","verbose"],
+    boolean: ["scan","verbose","create"],
 });
 if (options.help) {
-    console.log("Usage: program --db [.db] --scan [files] | --query query");
+    console.log("Usage: program --db [.db] --scan [files] | --query query | --create");
     process.exit(1);
 }
 
@@ -620,11 +622,17 @@ var db;
 if (options.db) {
   db = new sqlite3(options.db); //, { verbose: console.log });
 }
+if (options.create) {
+    console.log('creating database', options.db);
+    db.exec(require('fs').readFileSync('create.sql', 'utf8'));
+}
 if (options.scan) {
     scanFiles(db, options._);
 }
 if (options.query) {
     doQuery(db, options.query);
 }
+
+process.on('exit', () => db.close());
 
 } // end main
