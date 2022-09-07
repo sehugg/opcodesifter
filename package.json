@@ -17,7 +17,7 @@
   "dependencies": {
     "@types/mocha": "^5.2.7",
     "@types/node": "^12.12.39",
-    "better-sqlite3": "^5.4.3",
+    "better-sqlite3": "^7.6.2",
     "getopts": "^2.2.5"
   }
 }
