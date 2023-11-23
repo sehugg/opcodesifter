@@ -633,6 +633,6 @@ if (options.query) {
     doQuery(db, options.query);
 }
 
-process.on('exit', () => db.close());
+process.on('exit', () => db?.close());
 
 } // end main

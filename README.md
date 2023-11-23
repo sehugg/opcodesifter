@@ -106,5 +106,5 @@ npm run main -- --db 6502.db --scan *.bin
 
 Query the database:
 ~~~
-npm run main -- --db 6502.db --query "out.write16(0x20, out.read16(0x20)+1)"
+npm run main -- --db 6502.db --query "o.write16(0x20, i.read16(0x20)+1)"
 ~~~
